@@ -1,0 +1,250 @@
+import {
+  GithubProfileSchema,
+  TwitterProfileSchema,
+  UserProfileDetailsSchema,
+  WebsiteSchema,
+} from "@monkeytype/schemas/users";
+import { createForm } from "@tanstack/solid-form";
+import { For } from "solid-js";
+
+import { invalidateMyProfile } from "../../queries/profile";
+import { hideModal } from "../../states/modals";
+import {
+  showErrorNotification,
+  showSuccessNotification,
+} from "../../states/notifications";
+import { getUserData, updateProfile } from "../../states/user";
+import { cn } from "../../utils/cn";
+import { AnimatedModal } from "../common/AnimatedModal";
+import { Button } from "../common/Button";
+import { UserBadge } from "../common/UserBadge";
+import { Checkbox } from "../ui/form/Checkbox";
+import { InputField } from "../ui/form/InputField";
+import { SubmitButton } from "../ui/form/SubmitButton";
+import { TextareaField } from "../ui/form/TextareaField";
+import { fromSchema } from "../ui/form/utils";
+
+export function EditProfile() {
+  const userData = getUserData();
+  if (userData === undefined) {
+    throw new Error("missing user in EditProfile");
+  }
+  const badges = userData.inventory?.badges ?? [];
+  const form = createForm(() => ({
+    defaultValues: {
+      bio: userData.details?.bio ?? "",
+      keyboard: userData.details?.keyboard ?? "",
+      github: userData.details?.socialProfiles?.github ?? "",
+      twitter: userData.details?.socialProfiles?.twitter ?? "",
+      website: userData.details?.socialProfiles?.website ?? "",
+      showActivityOnPublicProfile:
+        userData.details?.showActivityOnPublicProfile ?? true,
+      badgeId: badges.find((b) => b.selected)?.id ?? -1,
+    },
+    onSubmit: async ({ value }) => {
+      const updates = {
+        bio: value.bio,
+        keyboard: value.keyboard,
+        socialProfiles: {
+          twitter: value.twitter ?? "",
+          github: value.github ?? "",
+          website: value.website ?? "",
+        },
+        showActivityOnPublicProfile: value.showActivityOnPublicProfile,
+      };
+
+      const { error } = await updateProfile({
+        details: updates,
+        selectedBadgeId: value.badgeId,
+      });
+      if (error !== null) {
+        showErrorNotification("Failed to update profile", { error });
+        return;
+      }
+
+      form.reset(value);
+      hideModal("EditProfile");
+      void invalidateMyProfile();
+      showSuccessNotification("Profile updated");
+    },
+  }));
+
+  return (
+    <AnimatedModal
+      id="EditProfile"
+      title="Edit Profile"
+      modalClass="max-w-[600px]"
+    >
+      <form
+        class="grid gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void form.handleSubmit();
+        }}
+      >
+        <div>
+          <label class="mb-[0.25em] block text-sub">name</label>
+          <div>
+            To update your name, go to Account Settings &gt; Account &gt; Update
+            account name
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-[0.25em] block text-sub">avatar</label>
+          <div>
+            To update your avatar make sure your Discord account is linked, then
+            go to Account Settings &gt; Account &gt; Discord Integration and
+            click &quot;Update Avatar&quot;
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-[0.25em] block text-sub">bio</label>
+          <form.Field
+            name="bio"
+            validators={{
+              onChange: fromSchema(UserProfileDetailsSchema.shape.bio),
+            }}
+          >
+            {(field) => (
+              <>
+                <TextareaField field={field} maxLength={250} />
+                <div class="mt-1 text-base">
+                  {field().state.value.length}/250
+                </div>
+              </>
+            )}
+          </form.Field>
+        </div>
+
+        <div>
+          <label class="mb-[0.25em] block text-sub">keyboard</label>
+          <form.Field
+            name="keyboard"
+            validators={{
+              onChange: fromSchema(UserProfileDetailsSchema.shape.keyboard),
+            }}
+          >
+            {(field) => (
+              <>
+                <TextareaField field={field} maxLength={75} />
+                <div class="mt-1 text-base">
+                  {field().state.value.length}/75
+                </div>
+              </>
+            )}
+          </form.Field>
+        </div>
+
+        <div>
+          <label class="mb-[0.25em] block text-sub">github</label>
+          <div class="flex items-center">
+            <p class="my-2 mr-2">https://github.com/</p>
+            <div class="w-full max-w-60">
+              <form.Field
+                name="github"
+                validators={{
+                  onChange: fromSchema(GithubProfileSchema),
+                }}
+              >
+                {(field) => (
+                  <InputField
+                    field={field}
+                    class="github"
+                    type="text"
+                    maxLength={39}
+                  />
+                )}
+              </form.Field>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-[0.25em] block text-sub">twitter</label>
+          <div class="flex items-center">
+            <p class="my-2 mr-2">https://x.com/</p>
+            <div class="w-full max-w-60">
+              <form.Field
+                name="twitter"
+                validators={{
+                  onChange: fromSchema(TwitterProfileSchema),
+                }}
+              >
+                {(field) => (
+                  <InputField
+                    field={field}
+                    class="twitter"
+                    type="text"
+                    maxLength={15}
+                  />
+                )}
+              </form.Field>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-[0.25em] block text-sub">website</label>
+          <form.Field
+            name="website"
+            validators={{
+              onChange: fromSchema(WebsiteSchema),
+            }}
+          >
+            {(field) => (
+              <InputField
+                field={field}
+                class="website"
+                type="text"
+                maxLength={200}
+              />
+            )}
+          </form.Field>
+        </div>
+
+        <div>
+          <label class="mb-[0.25em] block text-sub">badge</label>
+          <form.Field name="badgeId">
+            {(field) => (
+              <div class="flex flex-wrap gap-2">
+                <For each={[{ id: -1 }, ...badges]}>
+                  {(badge) => (
+                    <Button
+                      class={cn("p-0 opacity-25 hover:opacity-100", {
+                        "opacity-100": field().state.value === badge.id,
+                      })}
+                      active={field().state.value === badge.id}
+                      onClick={() => field().handleChange(badge.id)}
+                    >
+                      <UserBadge
+                        id={badge.id}
+                        class="p-1.5 text-em-sm"
+                        hideDescription
+                      />
+                    </Button>
+                  )}
+                </For>
+              </div>
+            )}
+          </form.Field>
+        </div>
+
+        <div>
+          <label class="mb-[0.25em] block text-sub">public activity</label>
+          <form.Field name="showActivityOnPublicProfile">
+            {(field) => (
+              <Checkbox
+                field={field}
+                label="Include test activity graph on your public profile."
+              />
+            )}
+          </form.Field>
+        </div>
+
+        <SubmitButton form={form}>save</SubmitButton>
+      </form>
+    </AnimatedModal>
+  );
+}

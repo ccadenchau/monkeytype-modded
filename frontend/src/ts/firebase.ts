@@ -1,0 +1,196 @@
+import { FirebaseError } from "firebase/app";
+import {
+  Auth as AuthType,
+  User,
+  setPersistence as firebaseSetPersistence,
+  browserSessionPersistence,
+  signInWithEmailAndPassword as firebaseSignInWithEmailAndPassword,
+  signInWithPopup as firebaseSignInWithPopup,
+  createUserWithEmailAndPassword as firebaseCreateUserWithEmailAndPassword,
+  getIdToken as firebaseGetIdToken,
+  UserCredential,
+  AuthProvider,
+  indexedDBLocalPersistence,
+  getAdditionalUserInfo,
+} from "firebase/auth";
+import { promiseWithResolvers } from "./utils/misc";
+import { createErrorMessage } from "./utils/error";
+
+import { tryCatch } from "@monkeytype/util/trycatch";
+import { showGoogleSignUpModal } from "./states/google-sign-up";
+import { setUserId, setUserVerified } from "./states/core";
+
+let Auth: AuthType | undefined = undefined;
+
+/**
+ * ignore auth callback. This is used during signup with google/github where we need to create the user on the backend first.
+ */
+
+type ReadyCallback = (success: boolean, user: User | null) => Promise<void>;
+let readyCallback: ReadyCallback | undefined;
+
+const { promise: authPromise, resolve: resolveAuthPromise } =
+  promiseWithResolvers();
+
+export async function init(callback: ReadyCallback): Promise<void> {
+  // Static build: authentication is disabled.
+  readyCallback = callback;
+  setUserState(null);
+  await callback(true, null);
+  resolveAuthPromise();
+}
+
+/**
+ *
+ * @returns the current user if authenticated, else `null`
+ */
+export function getAuthenticatedUser(): User | null {
+  return Auth?.currentUser ?? null;
+}
+
+export function isAuthAvailable(): boolean {
+  return Auth !== undefined;
+}
+
+export async function signOut(): Promise<void> {
+  console.log("auth signout");
+  await Auth?.signOut();
+}
+
+export async function signInWithEmailAndPassword(
+  email: string,
+  password: string,
+  rememberMe: boolean,
+): Promise<UserCredential> {
+  if (Auth === undefined) throw new Error("Authentication uninitialized");
+  await setPersistence(rememberMe, true);
+
+  const { data: result, error } = await tryCatch(
+    firebaseSignInWithEmailAndPassword(Auth, email, password),
+  );
+  if (error !== null) {
+    console.error(error);
+    throw translateFirebaseError(
+      error,
+      "Failed to sign in with email and password",
+    );
+  }
+
+  return result;
+}
+
+export function setUserState(
+  options: {
+    uid: string;
+    emailVerified: boolean;
+  } | null,
+): void {
+  if (options === null) {
+    setUserId(null);
+    setUserVerified(false);
+  } else {
+    setUserId(options.uid);
+    setUserVerified(options.emailVerified);
+  }
+}
+
+export async function signInWithPopup(
+  provider: AuthProvider,
+  rememberMe: boolean,
+): Promise<void> {
+  if (Auth === undefined) throw new Error("Authentication uninitialized");
+  await setPersistence(rememberMe, true);
+  const { data: signedInUser, error } = await tryCatch(
+    firebaseSignInWithPopup(Auth, provider),
+  );
+  if (error !== null) {
+    console.log(error);
+    throw translateFirebaseError(error, "Failed to sign in with popup");
+  }
+  const additionalUserInfo = getAdditionalUserInfo(signedInUser);
+  if (additionalUserInfo?.isNewUser) {
+    showGoogleSignUpModal(signedInUser);
+  } else {
+    setUserState(signedInUser.user);
+    await readyCallback?.(true, signedInUser.user);
+  }
+}
+
+export async function createUserWithEmailAndPassword(
+  email: string,
+  password: string,
+): Promise<UserCredential> {
+  if (Auth === undefined) throw new Error("Authentication uninitialized");
+  const result = await firebaseCreateUserWithEmailAndPassword(
+    Auth,
+    email,
+    password,
+  );
+
+  return result;
+}
+
+export async function getIdToken(): Promise<string | null> {
+  const user = getAuthenticatedUser();
+  if (user === null) return null;
+  return firebaseGetIdToken(user);
+}
+async function setPersistence(
+  rememberMe: boolean,
+  store = false,
+): Promise<void> {
+  if (Auth === undefined) throw new Error("Authentication uninitialized");
+  const persistence = rememberMe
+    ? indexedDBLocalPersistence
+    : browserSessionPersistence;
+
+  if (store) {
+    window.localStorage.setItem(
+      "firebasePersistence",
+      rememberMe ? "LOCAL" : "SESSION",
+    );
+  }
+
+  await firebaseSetPersistence(Auth, persistence);
+}
+
+function translateFirebaseError(
+  error: Error | FirebaseError,
+  defaultMessage: string,
+): Error {
+  let message = createErrorMessage(error, defaultMessage);
+
+  if (error instanceof FirebaseError) {
+    if (error.code === "auth/wrong-password") {
+      message = "Incorrect password";
+    } else if (error.code === "auth/user-not-found") {
+      message = "User not found";
+    } else if (error.code === "auth/invalid-email") {
+      message =
+        "Invalid email format (make sure you are using your email to login - not your username)";
+    } else if (error.code === "auth/invalid-credential") {
+      message =
+        "Email/password is incorrect or your account does not have password authentication enabled.";
+    } else if (error.code === "auth/popup-closed-by-user") {
+      message = "Popup closed by user";
+    } else if (error.code === "auth/popup-blocked") {
+      message =
+        "Sign in popup was blocked by the browser. Check the address bar for a blocked popup icon, or update your browser settings to allow popups.";
+    } else if (error.code === "auth/user-cancelled") {
+      message = "Cancelled by user";
+    } else if (error.code === "auth/account-exists-with-different-credential") {
+      message =
+        "Account already exists, but its using a different authentication method. Try signing in with a different method";
+    } else {
+      message = `Firebase error: ${error.code}`;
+    }
+  }
+
+  return new Error(message, { cause: error });
+}
+
+export function resetIgnoreAuthCallback(): void {
+  // Authentication is disabled in the static build.
+}
+
+export { authPromise };

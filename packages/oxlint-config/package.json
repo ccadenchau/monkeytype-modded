@@ -1,0 +1,12 @@
+{
+  "name": "@monkeytype/oxlint-config",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.json"
+  },
+  "scripts": {},
+  "devDependencies": {
+    "@oxlint/plugins": "1.43.0"
+  }
+}

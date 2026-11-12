@@ -1,0 +1,18 @@
+packages:
+  - frontend
+  - packages/*
+
+allowBuilds:
+  "@firebase/util": true
+  "@fortawesome/fontawesome-free": true
+  "@parcel/watcher": true
+  "@sentry/cli": true
+  core-js: true
+  esbuild: true
+  protobufjs: true
+
+overrides:
+  "postcss": "8.5.8"
+engineStrict: true
+saveExact: true
+savePrefix: ""

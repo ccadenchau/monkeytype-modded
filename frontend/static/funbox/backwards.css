@@ -1,0 +1,7 @@
+[data-ui-element="words"] {
+  direction: rtl;
+}
+
+[data-ui-element="words"][data-ui-rtl] {
+  direction: ltr;
+}

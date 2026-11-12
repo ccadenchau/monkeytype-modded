@@ -1,0 +1,25 @@
+import { showSimpleModal } from "../../../states/simple-modal";
+import { unlinkDiscord } from "../../../states/user";
+
+export function showUnlinkDiscordModal(): void {
+  showSimpleModal({
+    title: "Unlink Discord",
+    text: "Are you sure you want to unlink your Discord account?",
+    buttonText: "unlink",
+    execFn: async () => {
+      const { error } = await unlinkDiscord();
+      if (error !== null) {
+        return {
+          status: "error",
+          message: "Failed to unlink Discord",
+          notificationOptions: { error },
+        };
+      }
+
+      return {
+        status: "success",
+        message: "Discord unlinked",
+      };
+    },
+  });
+}
