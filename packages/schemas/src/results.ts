@@ -30,10 +30,11 @@ export const OldChartDataSchema = z.object({
 });
 export type OldChartData = z.infer<typeof OldChartDataSchema>;
 
+// 0.1s samples: 122s max test length x 10 samples per second
 export const ChartDataSchema = z.object({
-  wpm: z.array(z.number().nonnegative()).max(122),
-  burst: z.array(z.number().int().nonnegative()).max(122),
-  err: z.array(z.number().nonnegative()).max(122),
+  wpm: z.array(z.number().nonnegative()).max(1220),
+  burst: z.array(z.number().int().nonnegative()).max(1220),
+  err: z.array(z.number().nonnegative()).max(1220),
 });
 export type ChartData = z.infer<typeof ChartDataSchema>;
 

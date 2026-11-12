@@ -4,6 +4,8 @@
 
 import * as AdController from "../controllers/ad-controller";
 import { queryClient } from "../queries";
+import { authEvent } from "../events/auth";
+import { isAuthenticated } from "../states/core";
 import { getRoutePage } from "../states/router";
 import { setFocusMode } from "../states/test";
 import type { PageName } from "./routes";
@@ -13,12 +15,21 @@ import { createRouterAuth } from "./create-router-auth";
 import { createAppRouter } from "./create-router";
 import { setRouter } from "./instance";
 
+// Static build: auth is the browser's local account, see initLocalAccount.
 const auth = createRouterAuth({
-  isAvailable: () => false,
-  isSignedIn: () => false,
+  isAvailable: () => true,
+  isSignedIn: () => isAuthenticated(),
 });
 
-auth.stateChanged(undefined);
+authEvent.subscribe((event) => {
+  if (event.type !== "authStateChanged") return;
+  const { isUserSignedIn, loadPromise, reloadUserData } = event.data;
+  if (isUserSignedIn) {
+    auth.stateChanged({ download: loadPromise, redownload: reloadUserData });
+  } else {
+    auth.stateChanged(undefined);
+  }
+});
 
 export const router = createAppRouter({ queryClient, auth });
 

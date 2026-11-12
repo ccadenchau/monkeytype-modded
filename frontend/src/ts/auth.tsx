@@ -31,13 +31,21 @@ import {
   getAuthenticatedUser,
   isAuthAvailable,
   resetIgnoreAuthCallback,
+  setLocalAccountUser,
   signInWithEmailAndPassword,
   signInWithPopup,
 } from "./firebase";
 import { createSignalWithSetters } from "./hooks/createSignalWithSetters";
 import { createEffectOn } from "./hooks/effects";
 import * as Sentry from "./sentry";
-import { getUserId, isAuthenticated, setUserId } from "./states/core";
+import {
+  getUserId,
+  isAuthenticated,
+  setUserId,
+  setUserVerified,
+} from "./states/core";
+import { sync as syncServerConfiguration } from "./ape/server-configuration";
+import { LOCAL_ACCOUNT_UID } from "./ape/local-account";
 import { hideLoaderBar, showLoaderBar } from "./states/loader-bar";
 import {
   showErrorNotification,
@@ -243,6 +251,26 @@ export async function onAuthStateChanged(
   }
 
   dispatchAuthStateChanged(user, userPromise);
+}
+
+/**
+ * Static build: there is no sign-in service, so this browser is always signed
+ * in to its own local account (see ape/local-account.ts). Loads the local
+ * server configuration first, since loading the user waits for it.
+ */
+export async function initLocalAccount(): Promise<void> {
+  await tryCatch(syncServerConfiguration());
+  // only the uid is used; the rest of a Firebase user is not needed here
+  const localUser = {
+    uid: LOCAL_ACCOUNT_UID,
+    email: null,
+    emailVerified: true,
+    displayName: null,
+    providerData: [],
+  } as unknown as UserType;
+  setLocalAccountUser(localUser);
+  setUserVerified(true);
+  await onAuthStateChanged(true, localUser);
 }
 
 /**

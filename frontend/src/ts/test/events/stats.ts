@@ -14,8 +14,9 @@ import Hangul from "hangul-js";
 export function getTimerBoundaryLabels(
   eventLog: EventLog,
   showLagLabels = true,
+  intervalMs = 1000,
 ): string[] {
-  const boundaries = getTimerBoundaries(eventLog);
+  const boundaries = getTimerBoundaries(eventLog, intervalMs);
   const catchupTimes: number[] = [];
   if (showLagLabels) {
     for (const event of eventLog.events) {
@@ -29,7 +30,8 @@ export function getTimerBoundaryLabels(
   return boundaries.map((boundary, i) => {
     // only the last boundary can be a tail; everything before it is on the grid
     const isLast = i === boundaries.length - 1;
-    const isTail = isLast && Math.abs(boundary - (i + 1) * 1000) > 100;
+    const isTail =
+      isLast && Math.abs(boundary - (i + 1) * intervalMs) > intervalMs / 10;
     if (isTail) return roundTo2(boundary / 1000).toFixed(2);
     // bucket spans (prevBoundary, boundary] — mark LAG if a catchup recovery
     // landed inside it (real-time events dumped into one perfect-grid bucket)
@@ -40,7 +42,8 @@ export function getTimerBoundaryLabels(
       );
       if (hasCatchup) return "LAG";
     }
-    return `${i + 1}`;
+    if (intervalMs === 1000) return `${i + 1}`;
+    return roundTo2(((i + 1) * intervalMs) / 1000).toString();
   });
 }
 
@@ -49,7 +52,13 @@ export function getTimerBoundaryLabels(
 // that want smooth per-second buckets unaffected by timer drift or catchup
 // bursts. For the real fire-time boundaries (drift/catchup-affected), use
 // getLaggedTimerBoundaries.
-export function getTimerBoundaries(eventLog: EventLog): number[] {
+/** Grid step of the stored typing graphs. Stats such as consistency use 1s. */
+export const CHART_INTERVAL_MS = 100;
+
+export function getTimerBoundaries(
+  eventLog: EventLog,
+  intervalMs = 1000,
+): number[] {
   let endMs: number | undefined;
   let tickCount = 0;
   for (const event of eventLog.events) {
@@ -61,7 +70,7 @@ export function getTimerBoundaries(eventLog: EventLog): number[] {
       // tab, so Time.get() can undercount real elapsed seconds (it stays 0 for
       // a fully-frozen tab) — testMs, from performance.now(), always reflects
       // true wall-clock. For healthy/mildly-stalled tests the two agree.
-      tickCount = Math.floor(endMs / 1000);
+      tickCount = Math.floor(endMs / intervalMs);
     }
   }
   if (endMs === undefined) return [];
@@ -71,12 +80,12 @@ export function getTimerBoundaries(eventLog: EventLog): number[] {
     const lkte = getRawLastKeypressToEndMs(eventLog);
     if (lkte < 7000) {
       endMs -= lkte;
-      tickCount = Math.min(tickCount, Math.floor(endMs / 1000));
+      tickCount = Math.min(tickCount, Math.floor(endMs / intervalMs));
     }
   }
 
   const boundaries: number[] = [];
-  for (let i = 1; i <= tickCount; i++) boundaries.push(i * 1000);
+  for (let i = 1; i <= tickCount; i++) boundaries.push(i * intervalMs);
 
   // append a fractional tail boundary for non-timed tests with a .5s+ remainder
   if (!isTimedTest(eventLog) && Math.round(roundTo2(endMs / 1000) % 1) >= 0.5) {
@@ -224,12 +233,13 @@ export function getLastKeypressToEndMs(eventLog: EventLog): number {
 function countPerInterval(
   eventLog: EventLog,
   predicate: (event: TestEventNoMs) => boolean,
+  intervalMs = 1000,
 ): {
   counts: number[];
   boundaries: number[];
 } {
   const { events } = eventLog;
-  const boundaries = getTimerBoundaries(eventLog);
+  const boundaries = getTimerBoundaries(eventLog, intervalMs);
 
   const counts: number[] = [];
   let eventIndex = 0;
@@ -261,10 +271,14 @@ export function getKeypressesPerSecond(eventLog: EventLog): number[] {
   return counts;
 }
 
-export function getBurstHistory(eventLog: EventLog): number[] {
+export function getBurstHistory(
+  eventLog: EventLog,
+  intervalMs = 1000,
+): number[] {
   const { counts, boundaries } = countPerInterval(
     eventLog,
     (e) => e.type === "input" && e.data.inputType === "insertText",
+    intervalMs,
   );
 
   let prevBoundary = 0;
@@ -674,20 +688,24 @@ export function getWordIndexesForSecond(
   return [...wordIndexes];
 }
 
-export function getErrorCountHistory(eventLog: EventLog): number[] {
+export function getErrorCountHistory(
+  eventLog: EventLog,
+  intervalMs = 1000,
+): number[] {
   const { counts } = countPerInterval(
     eventLog,
     (e) =>
       e.type === "input" &&
       e.data.inputType === "insertText" &&
       !e.data.correct,
+    intervalMs,
   );
   return counts;
 }
 
-export function getWpmHistory(eventLog: EventLog): number[] {
+export function getWpmHistory(eventLog: EventLog, intervalMs = 1000): number[] {
   const { events } = eventLog;
-  const boundaries = getTimerBoundaries(eventLog);
+  const boundaries = getTimerBoundaries(eventLog, intervalMs);
   if (boundaries.length === 0) return [];
 
   const eventsPerWord = new Map<number, TestEventNoMs[]>();
@@ -752,9 +770,9 @@ export function getWpmHistory(eventLog: EventLog): number[] {
   return wpmHistory;
 }
 
-export function getRawHistory(eventLog: EventLog): number[] {
+export function getRawHistory(eventLog: EventLog, intervalMs = 1000): number[] {
   const { events } = eventLog;
-  const boundaries = getTimerBoundaries(eventLog);
+  const boundaries = getTimerBoundaries(eventLog, intervalMs);
   if (boundaries.length === 0) return [];
 
   const eventsPerWord = new Map<number, TestEventNoMs[]>();

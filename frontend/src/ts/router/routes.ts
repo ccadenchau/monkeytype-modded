@@ -161,7 +161,8 @@ function signedOutOnly(auth: RouterAuth): void {
 const root = createRootRouteWithContext<RouterContext>()({
   component: PageSwitcher,
   beforeLoad: ({ location }) => {
-    if (!["/", "/settings"].includes(location.pathname.replace(/\/$/, "") || "/")) {
+    // /account is the local account (results and personal bests in this browser)
+    if (!["/", "/settings", "/account"].includes(location.pathname.replace(/\/$/, "") || "/")) {
       redirect({ to: "/", replace: true, throw: true });
     }
   },

@@ -1,8 +1,11 @@
 import { Language, LanguageSchema } from "@monkeytype/schemas/languages";
 
-export const LanguageList: Language[] = LanguageSchema._def.values;
+// Static build: only the English languages are kept (see static/languages).
+export const LanguageList: Language[] = LanguageSchema._def.values.filter(
+  (lang) => lang.startsWith("english"),
+);
 
-export const LanguageGroups: Record<string, Language[]> = {
+const allLanguageGroups: Record<string, Language[]> = {
   english: [
     "english",
     "english_1k",
@@ -389,6 +392,10 @@ export const LanguageGroups: Record<string, Language[]> = {
   lao: ["lao"],
   sindhi: ["sindhi"],
 };
+
+export const LanguageGroups: Record<string, Language[]> = Object.fromEntries(
+  Object.entries(allLanguageGroups).filter(([name]) => name === "english"),
+);
 
 export type LanguageGroupName = keyof typeof LanguageGroups;
 export const LanguageGroupNames: LanguageGroupName[] = Array.from(

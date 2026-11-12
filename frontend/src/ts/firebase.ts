@@ -40,12 +40,19 @@ export async function init(callback: ReadyCallback): Promise<void> {
   resolveAuthPromise();
 }
 
+/** Static build: the browser's local account, see initLocalAccount in auth.tsx. */
+let localAccountUser: User | null = null;
+
+export function setLocalAccountUser(user: User): void {
+  localAccountUser = user;
+}
+
 /**
  *
  * @returns the current user if authenticated, else `null`
  */
 export function getAuthenticatedUser(): User | null {
-  return Auth?.currentUser ?? null;
+  return Auth?.currentUser ?? localAccountUser;
 }
 
 export function isAuthAvailable(): boolean {

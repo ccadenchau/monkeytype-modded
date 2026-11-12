@@ -1,6 +1,5 @@
 import { PersonalBest, PersonalBests } from "@monkeytype/schemas/shared";
 import {
-  RankAndCount,
   UserProfile as UserProfileType,
 } from "@monkeytype/schemas/users";
 import { formatDate } from "date-fns/format";
@@ -8,10 +7,11 @@ import { createMemo, For, JSXElement, Show } from "solid-js";
 
 import { getFormatting } from "../../../states/core";
 import { showPbTablesModal } from "../../../states/pb-tables-modal";
-import { formatTopPercentage } from "../../../utils/misc";
 import { DeepReadonly } from "../../../utils/types";
 import { Button } from "../../common/Button";
 import { ActivityCalendar } from "./ActivityCalendar";
+import { SpeedChart } from "../account/SpeedChart";
+import { AverageWpm } from "./AverageWpm";
 import { UserDetails } from "./UserDetails";
 
 export function UserProfile(props: {
@@ -24,12 +24,6 @@ export function UserProfile(props: {
         profile={props.profile}
         isAccountPage={props.isAccountPage}
       />
-      <Show when={!props.profile.banned && !props.profile.lbOptOut}>
-        <LeaderboardPosition
-          top15={props.profile.allTimeLbs?.time?.["15"]?.["english"]}
-          top60={props.profile.allTimeLbs?.time?.["60"]?.["english"]}
-        />
-      </Show>
       <div class="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <PbCard
           mode="time"
@@ -44,6 +38,10 @@ export function UserProfile(props: {
           isAccountPage={props.isAccountPage}
         />
       </div>
+      <Show when={props.isAccountPage}>
+        <AverageWpm />
+        <SpeedChart />
+      </Show>
       <Show when={props.profile.lbOptOut}>
         <span class="text-center text-xs text-sub">
           Note: This account has opted out of the leaderboards, meaning their
@@ -59,45 +57,6 @@ export function UserProfile(props: {
         isAccountPage={props.isAccountPage}
       />
     </div>
-  );
-}
-
-function LeaderboardPosition(props: {
-  top15?: RankAndCount;
-  top60?: RankAndCount;
-}): JSXElement {
-  const format = getFormatting;
-
-  return (
-    <Show when={props.top15 !== undefined || props.top60 !== undefined}>
-      <div class="grid w-full grid-cols-1 items-center gap-4 rounded bg-sub-alt p-4 text-sub md:grid-cols-2 lg:grid-cols-3">
-        <span class="text-center md:col-span-2 lg:col-span-1">
-          All-Time English Leaderboards
-        </span>
-        <Show when={props.top15 !== undefined}>
-          <div class="grid grid-cols-2 gap-x-4">
-            <div class="justify-self-end">15 seconds</div>
-            <div class="row-span-2 text-3xl text-text">
-              {format().rank(props.top15?.rank)}
-            </div>
-            <div class="justify-self-end text-xs">
-              {formatTopPercentage(props.top15)}
-            </div>
-          </div>
-        </Show>
-        <Show when={props.top60 !== undefined}>
-          <div class="grid grid-cols-2 gap-x-4">
-            <div class="justify-self-end">60 seconds</div>
-            <div class="row-span-2 text-3xl text-text">
-              {format().rank(props.top60?.rank)}
-            </div>
-            <div class="justify-self-end text-xs">
-              {formatTopPercentage(props.top60)}
-            </div>
-          </div>
-        </Show>
-      </div>
-    </Show>
   );
 }
 

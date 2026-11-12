@@ -1,5 +1,6 @@
 import { ComponentProps, For, JSXElement, Show } from "solid-js";
 
+import { applyAdaptiveWords, isAdaptiveActive, setAdaptiveActive } from "../../../test/adaptive";
 import { configMetadata } from "../../../config/metadata";
 import { setConfig, setQuoteLengthAll } from "../../../config/setters";
 import { getConfig } from "../../../config/store";
@@ -7,11 +8,7 @@ import { createEffectOn } from "../../../hooks/effects";
 import { useRefWithUtils } from "../../../hooks/useRefWithUtils";
 import { isAuthenticated } from "../../../states/core";
 import { showModal } from "../../../states/modals";
-import {
-  isTestFinished,
-  isFocusMode,
-  isTestRestarting,
-} from "../../../states/test";
+import { isTestFinished, isFocusMode, isTestRestarting } from "../../../states/test";
 import { restartTest } from "../../../test/test-logic";
 import { FaObject } from "../../../types/font-awesome";
 import { areUnsortedArraysEqual } from "../../../utils/arrays";
@@ -26,8 +23,7 @@ const variables = cn(
   "xl:[--card-gap:2em] xl:[--font-size:0.75em] xl:[--horizontal-padding:1em] xl:[--vertical-padding:0.75rem]",
 );
 const buttonClass = "px-(--horizontal-padding) py-(--vertical-padding)";
-const cardClass =
-  "card rounded-(--roundness) bg-sub-alt px-(--horizontal-padding)";
+const cardClass = "card rounded-(--roundness) bg-sub-alt px-(--horizontal-padding)";
 const durationMs = 250;
 
 export function TestConfig(): JSXElement {
@@ -38,9 +34,7 @@ export function TestConfig(): JSXElement {
           variables,
           "group relative mb-8 hidden w-max grid-cols-[1fr_auto_1fr] justify-center place-self-center [font-size:var(--font-size)] md:grid",
           "mx-auto transition-opacity duration-125",
-          isFocusMode() || isTestFinished()
-            ? "pointer-events-none opacity-0"
-            : "",
+          isFocusMode() || isTestFinished() ? "pointer-events-none opacity-0" : "",
         )}
         data-ui-element="testConfig"
       >
@@ -49,9 +43,7 @@ export function TestConfig(): JSXElement {
         <Mode2 />
       </div>
       <Button
-        class={cn(
-          "mx-auto flex place-self-center px-4 py-2 text-sub md:hidden",
-        )}
+        class={cn("mx-auto flex place-self-center px-4 py-2 text-sub md:hidden")}
         variant="button"
         onClick={() => {
           showModal("MobileTestConfig");
@@ -122,30 +114,40 @@ function PuncAndNum(): JSXElement {
 }
 
 function Mode(): JSXElement {
-  const modeOptions = ["time", "words", "quote", "zen", "custom"] as const;
+  const modeOptions = ["time", "words", "quote", "zen"] as const;
 
   return (
     <div class={cn("z-2", cardClass)}>
-      <For each={modeOptions}>
-        {(modeOption) => (
-          <TCButton
-            fa={
-              configMetadata.mode.optionsMetadata?.[modeOption]?.fa ??
-              configMetadata.mode.fa
-            }
-            text={
-              configMetadata.mode.optionsMetadata?.[modeOption]
-                ?.displayString ?? modeOption
-            }
-            active={getConfig.mode === modeOption}
-            onClick={() => {
-              setConfig("mode", modeOption);
-              void restartTest();
-            }}
-          />
-        )}
-      </For>
+      <For each={modeOptions}>{(modeOption) => <ModeButton mode={modeOption} />}</For>
+      <TCButton
+        fa={{ icon: "fa-robot" }}
+        text="adaptive"
+        active={isAdaptiveActive()}
+        onClick={() => {
+          void (async () => {
+            await applyAdaptiveWords();
+            setAdaptiveActive(true);
+            await restartTest();
+          })();
+        }}
+      />
+      <ModeButton mode="custom" />
     </div>
+  );
+}
+
+function ModeButton(props: { mode: "time" | "words" | "quote" | "zen" | "custom" }): JSXElement {
+  return (
+    <TCButton
+      fa={configMetadata.mode.optionsMetadata?.[props.mode]?.fa ?? configMetadata.mode.fa}
+      text={configMetadata.mode.optionsMetadata?.[props.mode]?.displayString ?? props.mode}
+      active={getConfig.mode === props.mode && !(props.mode === "custom" && isAdaptiveActive())}
+      onClick={() => {
+        setAdaptiveActive(false);
+        setConfig("mode", props.mode);
+        void restartTest();
+      }}
+    />
   );
 }
 
@@ -291,9 +293,7 @@ function Mode2Words(props: ComponentProps<"div">): JSXElement {
         )}
       </For>
       <TCButton
-        active={
-          !wordCounts.includes(getConfig.words as (typeof wordCounts)[number])
-        }
+        active={!wordCounts.includes(getConfig.words as (typeof wordCounts)[number])}
         fa={{
           icon: "fa-tools",
         }}

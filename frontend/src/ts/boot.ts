@@ -1,3 +1,4 @@
+import { initLocalAccount } from "./auth";
 import { configLoadPromise } from "./config/lifecycle";
 import { initConnection } from "./states/connection";
 import { setAppReady } from "./states/core";
@@ -8,6 +9,7 @@ export async function boot(): Promise<void> {
   initConnection();
 
   await configLoadPromise;
+  await initLocalAccount();
 
   setAppReady(true);
 

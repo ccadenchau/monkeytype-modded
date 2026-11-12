@@ -21,6 +21,13 @@ export function Nav(): JSXElement {
       />
       <Button
         variant="text"
+        fa={{ icon: "fa-user", fixedWidth: true }}
+        to="/account"
+        class={buttonClass()}
+        dataset={{ "data-nav-item": "account" }}
+      />
+      <Button
+        variant="text"
         fa={{ icon: "fa-cog", fixedWidth: true }}
         to="/settings"
         class={buttonClass()}

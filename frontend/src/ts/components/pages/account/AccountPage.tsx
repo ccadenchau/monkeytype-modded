@@ -1,5 +1,5 @@
 import { Mode } from "@monkeytype/schemas/shared";
-import { createMemo, createSignal, JSXElement, Show } from "solid-js";
+import { createMemo, createSignal, For, JSXElement, Show } from "solid-js";
 
 import type { NormalizedLocalResult } from "../../../collections/results";
 
@@ -18,6 +18,7 @@ import AsyncContent from "../../common/AsyncContent";
 import { Button } from "../../common/Button";
 import { Charts } from "./Charts";
 import { Filters } from "./Filters";
+import { MissedWords } from "./MissedWords";
 import { MyProfile } from "./MyProfile";
 import { Table } from "./Table";
 import { TestStats } from "./TestStats";
@@ -46,6 +47,14 @@ export function AccountPage(): JSXElement {
   const [scrollToSelectedResult, requestScrollToSelectedResult] =
     createTrigger();
   const [isExporting, setIsExporting] = createSignal(false);
+  const [tab, setTab] = createSignal<"overview" | "results" | "missed">(
+    "overview",
+  );
+  const tabs = [
+    { id: "overview", label: "overview" },
+    { id: "results", label: "results" },
+    { id: "missed", label: "missed words" },
+  ] as const;
 
   const resultsQuery = useResultsLiveQuery({
     queryState,
@@ -55,9 +64,28 @@ export function AccountPage(): JSXElement {
 
   return (
     <div class="flex flex-col gap-8">
-      <VerifyNotice />
-      <MyProfile />
+      <div class="flex gap-2">
+        <For each={tabs}>
+          {(t) => (
+            <Button
+              text={t.label}
+              class={`w-full ${tab() === t.id ? "bg-main text-bg" : "bg-sub-alt text-sub"}`}
+              onClick={() => setTab(t.id)}
+            />
+          )}
+        </For>
+      </div>
 
+      <Show when={tab() === "overview"}>
+        <VerifyNotice />
+        <MyProfile />
+      </Show>
+
+      <Show when={tab() === "missed"}>
+        <MissedWords />
+      </Show>
+
+      <Show when={tab() === "results"}>
       <Advertisement id="ad-account-1" visible="sellout" />
 
       <Filters filters={filters} onChangeFilters={setFilters} />
@@ -132,6 +160,7 @@ export function AccountPage(): JSXElement {
             )}
           </AsyncContent>
         </>
+      </Show>
       </Show>
     </div>
   );

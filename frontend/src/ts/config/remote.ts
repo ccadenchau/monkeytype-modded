@@ -1,26 +1,17 @@
 import * as ConfigSchemas from "@monkeytype/schemas/configs";
 
 import { migrateConfig } from "./utils";
-import { applyConfig } from "./lifecycle";
-import { saveFullConfigToLocalStorage } from "./persistence";
 import Ape from "../ape";
 import { UserDataLoadError } from "../utils/user-data-load-error";
 import { getDefaultConfig } from "../constants/default-config";
-import { Config } from "./store";
 
+// Static build: the config lives in this browser's localStorage and there is
+// no server copy, so nothing is applied over it. (The local "server" config is
+// only the defaults, applying it would reset the user's settings on every load.)
 export async function applyFromServer(
-  remoteConfig: ConfigSchemas.Config,
+  _remoteConfig: ConfigSchemas.Config,
 ): Promise<void> {
-  const areConfigsEqual =
-    JSON.stringify(Config) === JSON.stringify(remoteConfig);
-
-  if (Config === undefined || !areConfigsEqual) {
-    console.log(
-      "no local config or local and db configs are different - applying db",
-    );
-    await applyConfig(remoteConfig);
-    saveFullConfigToLocalStorage(true);
-  }
+  // intentionally empty
 }
 
 export async function fetchFromServer(): Promise<ConfigSchemas.Config> {

@@ -40,6 +40,7 @@ import { CompletedResult, getLastEventLog } from "../../../../states/test";
 import { getTheme } from "../../../../states/theme";
 import { getLocalPB } from "../../../../states/user";
 import {
+  CHART_INTERVAL_MS,
   getRawHistory,
   getTimerBoundaryLabels,
   getWordIndexesForSecond,
@@ -115,9 +116,9 @@ function buildChartData(
 
   const valueWindow = Math.max(...result.chartData.burst) * 0.25;
   return {
-    labels: getTimerBoundaryLabels(eventLog, false),
+    labels: getTimerBoundaryLabels(eventLog, false, CHART_INTERVAL_MS),
     wpm: convert(result.chartData.wpm),
-    raw: convert(getRawHistory(eventLog)),
+    raw: convert(getRawHistory(eventLog, CHART_INTERVAL_MS)),
     burst: convert(
       smoothWithValueWindow(
         result.chartData.burst,
@@ -415,7 +416,6 @@ function buildChartConfig(
   unit: TypingSpeedUnitSettings,
   theme: Theme,
 ): ChartConfig {
-  const rawColor = `${theme.main}99`;
   const burstFill = blendTwoHexColors(theme.subAlt, `${theme.subAlt}00`, 0.5);
 
   return {
@@ -431,7 +431,7 @@ function buildChartConfig(
           backgroundColor: "transparent",
           pointBackgroundColor: theme.main,
           pointBorderColor: theme.main,
-          borderWidth: 3,
+          borderWidth: 1.5,
           yAxisID: "wpm",
           order: 2,
           pointRadius: 1,
@@ -442,13 +442,11 @@ function buildChartConfig(
           label: "raw",
           data: data.raw,
           hidden: !vis.raw,
-          borderColor: rawColor,
+          borderColor: theme.main,
           backgroundColor: "transparent",
-          pointBackgroundColor: rawColor,
-          pointBorderColor: rawColor,
-          borderWidth: 2,
+          borderWidth: 1.5,
+          borderDash: [4, 4],
           yAxisID: "raw",
-          borderDash: [8, 8],
           order: 3,
           pointRadius: 0,
         },
@@ -480,7 +478,7 @@ function buildChartConfig(
           backgroundColor: burstFill,
           pointBackgroundColor: theme.sub,
           pointBorderColor: theme.sub,
-          borderWidth: 3,
+          borderWidth: 1.5,
           yAxisID: "burst",
           order: 4,
           pointRadius: 1,

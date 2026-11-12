@@ -24,17 +24,15 @@ import * as Funbox from "./funbox/funbox";
 import * as PaceCaret from "./pace-caret";
 import * as TestTimer from "./test-timer";
 import { saveLocalResult, SaveLocalResultData } from "../collections/results";
+import { addMissedWords, saveFinishedTest } from "../ape/local-account";
+import { extractKeystrokes } from "./events/keystrokes";
+import { applyAdaptiveWords, isAdaptiveActive } from "./adaptive";
 import * as Replay from "../components/pages/test/result/replay";
 import { __nonReactive } from "../collections/tags";
 import * as TodayTracker from "./today-tracker";
 import * as ChallengeContoller from "../controllers/challenge-controller";
 import { clearQuoteStats } from "../states/quote-rate";
-import {
-  getPbEligibility,
-  getResultTags,
-  showErrorCrownIfNeeded,
-  updateCrown,
-} from "./result-pb";
+import { getPbEligibility, getResultTags, showErrorCrownIfNeeded, updateCrown } from "./result-pb";
 import { showConfetti } from "../elements/confetti";
 import * as AdController from "../controllers/ad-controller";
 import * as Arrays from "../utils/arrays";
@@ -94,10 +92,7 @@ import { configEvent } from "../events/config";
 import objectHash from "object-hash";
 import { getAuthenticatedUser } from "../firebase";
 import { Mode } from "@monkeytype/schemas/shared";
-import {
-  CompletedEvent,
-  CompletedEventCustomText,
-} from "@monkeytype/schemas/results";
+import { CompletedEvent, CompletedEventCustomText } from "@monkeytype/schemas/results";
 import {
   findSingleActiveFunboxWithFunction,
   getActiveFunboxes,
@@ -135,6 +130,8 @@ import {
 import {
   getKeypressDurations,
   getChars,
+  CHART_INTERVAL_MS,
+  getMissedWords,
   getBurstHistory,
   getLastKeypressToEndMs,
   getStartToFirstKeypressMs,
@@ -240,9 +237,7 @@ type RestartOptions = {
   isQuickRestart?: boolean;
 };
 
-export async function restartTest(
-  options = {} as RestartOptions,
-): Promise<void> {
+export async function restartTest(options = {} as RestartOptions): Promise<void> {
   const defaultOptions = {
     withSameWordset: false,
     practiseMissed: false,
@@ -253,6 +248,11 @@ export async function restartTest(
 
   options = { ...defaultOptions, ...options };
 
+  // adaptive tests get new words on every restart
+  if (isAdaptiveActive() && !options.withSameWordset) {
+    await applyAdaptiveWords();
+  }
+
   // guards
 
   // not on the test page - TestPage restarts on mount
@@ -260,12 +260,9 @@ export async function restartTest(
 
   const noQuit = isFunboxActive("no_quit");
   if (isTestActive() && noQuit) {
-    showNoticeNotification(
-      "No quit funbox is active. Please finish the test.",
-      {
-        important: true,
-      },
-    );
+    showNoticeNotification("No quit funbox is active. Please finish the test.", {
+      important: true,
+    });
     options.event?.preventDefault();
     return;
   }
@@ -294,13 +291,10 @@ export async function restartTest(
         } else if (Config.quickRestart === "enter") {
           message = "Press shift + enter or use your mouse to confirm.";
         }
-        showNoticeNotification(
-          `Quick restart disabled in long tests. ${message}`,
-          {
-            durationMs: 4000,
-            important: true,
-          },
-        );
+        showNoticeNotification(`Quick restart disabled in long tests. ${message}`, {
+          durationMs: 4000,
+          important: true,
+        });
         return;
       }
     }
@@ -325,11 +319,7 @@ export async function restartTest(
     options.withSameWordset = true;
   }
 
-  if (
-    PractiseWords.before.mode !== null &&
-    !options.withSameWordset &&
-    !options.practiseMissed
-  ) {
+  if (PractiseWords.before.mode !== null && !options.withSameWordset && !options.practiseMissed) {
     showNoticeNotification("Reverting to previous settings.");
     if (PractiseWords.before.punctuation !== null) {
       setConfig("punctuation", PractiseWords.before.punctuation);
@@ -342,9 +332,7 @@ export async function restartTest(
       CustomText.setText(PractiseWords.before.customText.text);
       CustomText.setLimitMode(PractiseWords.before.customText.limit.mode);
       CustomText.setLimitValue(PractiseWords.before.customText.limit.value);
-      CustomText.setPipeDelimiter(
-        PractiseWords.before.customText.pipeDelimiter,
-      );
+      CustomText.setPipeDelimiter(PractiseWords.before.customText.pipeDelimiter);
     }
 
     setConfig("mode", PractiseWords.before.mode);
@@ -355,16 +343,13 @@ export async function restartTest(
 
   resetTestState();
 
-  const repeatWithPace =
-    (Config.repeatedPace && options.withSameWordset) ?? false;
+  const repeatWithPace = (Config.repeatedPace && options.withSameWordset) ?? false;
   setIsRepeated(options.withSameWordset ?? false);
   setIsPaceRepeat(repeatWithPace);
 
   // restart
 
-  const source: "testPage" | "resultPage" = isTestFinished()
-    ? "resultPage"
-    : "testPage";
+  const source: "testPage" | "resultPage" = isTestFinished() ? "resultPage" : "testPage";
   const noAnim = options.noAnim ?? false;
 
   setIsTestRestarting(true);
@@ -416,9 +401,7 @@ async function init(): Promise<boolean> {
   resetActiveWordIndex();
 
   showLoaderBar();
-  const { data: language, error } = await tryCatch(
-    JSONData.getLanguage(Config.language),
-  );
+  const { data: language, error } = await tryCatch(JSONData.getLanguage(Config.language));
   hideLoaderBar();
 
   if (error) {
@@ -446,9 +429,7 @@ async function init(): Promise<boolean> {
   if (getActiveFunboxNames().includes("polyglot")) {
     const polyglotLanguages = Config.customPolyglot;
     const languagePromises = polyglotLanguages.map(async (langName) => {
-      const { data: lang, error } = await tryCatch(
-        JSONData.getLanguage(langName),
-      );
+      const { data: lang, error } = await tryCatch(JSONData.getLanguage(langName));
       if (error) {
         showErrorNotification(`Failed to load language: ${langName}`, {
           error,
@@ -464,12 +445,9 @@ async function init(): Promise<boolean> {
     if (Config.lazyMode && !anySupportsLazyMode) {
       setRememberLazyMode(true);
       if (!showedLazyModeNotification) {
-        showNoticeNotification(
-          "None of the selected polyglot languages support lazy mode.",
-          {
-            important: true,
-          },
-        );
+        showNoticeNotification("None of the selected polyglot languages support lazy mode.", {
+          important: true,
+        });
         showedLazyModeNotification = true;
       }
       setConfig("lazyMode", false);
@@ -567,10 +545,7 @@ async function init(): Promise<boolean> {
   setKoreanStatus(wordsKoreanStatus);
 
   for (let i = 0; i < generatedWords.length; i++) {
-    TestWords.words.push(
-      generatedWords[i] as string,
-      generatedSectionIndexes[i] as number,
-    );
+    TestWords.words.push(generatedWords[i] as string, generatedSectionIndexes[i] as number);
   }
 
   if (WordsGenerator.areAllWordsGenerated()) {
@@ -596,10 +571,7 @@ async function init(): Promise<boolean> {
   );
 
   console.debug("Test initialized with words", TestWords.words.get());
-  console.debug(
-    "Test initialized with section indexes",
-    generatedSectionIndexes,
-  );
+  console.debug("Test initialized with section indexes", generatedSectionIndexes);
   return true;
 }
 
@@ -631,14 +603,10 @@ export async function addWord(): Promise<void> {
   const sectionFunbox = findSingleActiveFunboxWithFunction("pullSection");
   if (sectionFunbox) {
     if (TestWords.words.length - getActiveWordIndex() < 20) {
-      const section = await sectionFunbox.functions.pullSection(
-        Config.language,
-      );
+      const section = await sectionFunbox.functions.pullSection(Config.language);
 
       if (section === false) {
-        showErrorNotification(
-          "Error while getting section. Please try again later",
-        );
+        showErrorNotification("Error while getting section. Please try again later");
         toggleFunbox(sectionFunbox.name);
         void restartTest();
         return;
@@ -653,10 +621,7 @@ export async function addWord(): Promise<void> {
           break;
         }
         wordCount++;
-        const newWord = TestWords.words.push(
-          WordsGenerator.appendCommitCharacter(word),
-          i,
-        );
+        const newWord = TestWords.words.push(WordsGenerator.appendCommitCharacter(word), i);
         appendRenderedWord(newWord);
       }
     }
@@ -670,20 +635,14 @@ export async function addWord(): Promise<void> {
       TestWords.words.get(TestWords.words.length - 2)?.text,
     );
 
-    const newWord = TestWords.words.push(
-      randomWord.word,
-      randomWord.sectionIndex,
-    );
+    const newWord = TestWords.words.push(randomWord.word, randomWord.sectionIndex);
     appendRenderedWord(newWord);
   } catch (e) {
     fail("word generation error");
-    showErrorNotification(
-      "Error while getting next word. Please try again later",
-      {
-        error: e,
-        important: true,
-      },
-    );
+    showErrorNotification("Error while getting next word. Please try again later", {
+      error: e,
+      important: true,
+    });
   }
 
   // strip the trailing commit separator once the final word has been generated
@@ -699,13 +658,10 @@ export async function retrySavingResult(): Promise<void> {
   const completedEvent = retrySavingEvent;
 
   if (completedEvent === null) {
-    showNoticeNotification(
-      "Could not retry saving the result as the result no longer exists.",
-      {
-        durationMs: 5000,
-        important: true,
-      },
-    );
+    showNoticeNotification("Could not retry saving the result as the result no longer exists.", {
+      durationMs: 5000,
+      important: true,
+    });
 
     return;
   }
@@ -725,9 +681,7 @@ function buildCompletedEvent(eventLog: EventLog): CompletedResult {
   const chars = getChars(eventLog);
 
   //tags
-  const activeTagsIds: string[] = __nonReactive
-    .getActiveTags()
-    .map((tag) => tag._id);
+  const activeTagsIds: string[] = __nonReactive.getActiveTags().map((tag) => tag._id);
 
   let language = Config.language;
   if (Config.mode === "quote") {
@@ -760,10 +714,7 @@ function buildCompletedEvent(eventLog: EventLog): CompletedResult {
 
   let keyConsistencyArray = [...keypressSpacing];
   if (keypressSpacing.length > 0) {
-    keyConsistencyArray = keyConsistencyArray.slice(
-      0,
-      keyConsistencyArray.length - 1,
-    );
+    keyConsistencyArray = keyConsistencyArray.slice(0, keyConsistencyArray.length - 1);
   }
   const keyStddev = Numbers.stdDev(keyConsistencyArray);
   const keyAvg = Numbers.mean(keyConsistencyArray);
@@ -778,10 +729,11 @@ function buildCompletedEvent(eventLog: EventLog): CompletedResult {
   );
   const wpmConsistency = isNaN(wpmCons) ? 0 : wpmCons;
 
+  // the stored typing graph is sampled every 0.1s; the stats above stay per second
   const chartData = {
-    wpm: wpmHistory,
-    burst: rawPerSecond,
-    err: getErrorCountHistory(eventLog),
+    wpm: getWpmHistory(eventLog, CHART_INTERVAL_MS),
+    burst: getBurstHistory(eventLog, CHART_INTERVAL_MS),
+    err: getErrorCountHistory(eventLog, CHART_INTERVAL_MS),
   };
 
   const currentQuote = getCurrentQuote();
@@ -876,10 +828,7 @@ export async function finish(difficultyFailed = false): Promise<void> {
     } else if (typeof input === "undefined") {
       return 1;
     } else if (typeof input === "object" && input !== null) {
-      return Object.values(input).reduce(
-        (a, b) => (a + countUndefined(b)) as number,
-        0,
-      ) as number;
+      return Object.values(input).reduce((a, b) => (a + countUndefined(b)) as number, 0) as number;
     } else {
       return 0;
     }
@@ -889,9 +838,7 @@ export async function finish(difficultyFailed = false): Promise<void> {
 
   if (countUndefined(ce) > 0) {
     console.log(ce);
-    showErrorNotification(
-      "Failed to build result object: One of the fields is undefined or NaN",
-    );
+    showErrorNotification("Failed to build result object: One of the fields is undefined or NaN");
     dontSave = true;
   }
 
@@ -933,16 +880,11 @@ export async function finish(difficultyFailed = false): Promise<void> {
   } else if (
     completedEvent.testDuration < 1 ||
     (Config.mode === "time" && mode2Number < 15 && mode2Number > 0) ||
-    (Config.mode === "time" &&
-      mode2Number === 0 &&
-      completedEvent.testDuration < 15) ||
+    (Config.mode === "time" && mode2Number === 0 && completedEvent.testDuration < 15) ||
     (Config.mode === "words" && mode2Number < 10 && mode2Number > 0) ||
-    (Config.mode === "words" &&
-      mode2Number === 0 &&
-      completedEvent.testDuration < 15) ||
+    (Config.mode === "words" && mode2Number === 0 && completedEvent.testDuration < 15) ||
     (Config.mode === "custom" &&
-      (CustomText.getLimitMode() === "word" ||
-        CustomText.getLimitMode() === "section") &&
+      (CustomText.getLimitMode() === "word" || CustomText.getLimitMode() === "section") &&
       CustomText.getLimitValue() < 10) ||
     (Config.mode === "custom" &&
       CustomText.getLimitMode() === "time" &&
@@ -966,9 +908,7 @@ export async function finish(difficultyFailed = false): Promise<void> {
     (completedEvent.wpm > 350 &&
       completedEvent.mode !== "words" &&
       completedEvent.mode2 !== "10") ||
-    (completedEvent.wpm > 420 &&
-      completedEvent.mode === "words" &&
-      completedEvent.mode2 === "10")
+    (completedEvent.wpm > 420 && completedEvent.mode === "words" && completedEvent.mode2 === "10")
   ) {
     showNoticeNotification("Test invalid - wpm");
     setIsTestInvalid(true);
@@ -986,10 +926,8 @@ export async function finish(difficultyFailed = false): Promise<void> {
     setIsTestInvalid(true);
     dontSave = true;
   } else if (
-    (!getUserData()?.lbOptOut &&
-      (completedEvent.acc < 75 || completedEvent.acc > 100)) ||
-    (getUserData()?.lbOptOut === true &&
-      (completedEvent.acc < 50 || completedEvent.acc > 100))
+    (!getUserData()?.lbOptOut && (completedEvent.acc < 75 || completedEvent.acc > 100)) ||
+    (getUserData()?.lbOptOut === true && (completedEvent.acc < 50 || completedEvent.acc > 100))
   ) {
     showNoticeNotification("Test invalid - accuracy");
     setIsTestInvalid(true);
@@ -1011,10 +949,7 @@ export async function finish(difficultyFailed = false): Promise<void> {
   const isLong = getCustomTextIndicator()?.isLong === true;
   if (Config.mode === "custom" && customTextName !== "" && isLong) {
     // Let's update the custom text progress
-    if (
-      getBailedOut() ||
-      getInputHistory(eventLog).length < TestWords.words.length
-    ) {
+    if (getBailedOut() || getInputHistory(eventLog).length < TestWords.words.length) {
       // They bailed out
 
       const history = getInputHistory(eventLog);
@@ -1027,15 +962,11 @@ export async function finish(difficultyFailed = false): Promise<void> {
       // history holds the typed letters, not the committing space separator, so
       // a space word is "complete" at text.length. display includes a newline
       // commit, which is a required typed char.
-      if (
-        lastWordInputLength <
-        (TestWords.words.get(wordIndex)?.display.length ?? 0)
-      ) {
+      if (lastWordInputLength < (TestWords.words.get(wordIndex)?.display.length ?? 0)) {
         historyLength--;
       }
 
-      const newProgress =
-        CustomText.getCustomTextLongProgress(customTextName) + historyLength;
+      const newProgress = CustomText.getCustomTextLongProgress(customTextName) + historyLength;
       CustomText.setCustomTextLongProgress(customTextName, newProgress);
       showSuccessNotification("Long custom text progress saved", {
         durationMs: 5000,
@@ -1057,13 +988,16 @@ export async function finish(difficultyFailed = false): Promise<void> {
     }
   }
 
-  TodayTracker.addSeconds(
-    completedEvent.testDuration - completedEvent.afkDuration,
-  );
+  TodayTracker.addSeconds(completedEvent.testDuration - completedEvent.afkDuration);
   setResultState("timeToday", TodayTracker.getString());
 
-  let savingResultPromise: ReturnType<typeof saveResult> =
-    Promise.resolve(null);
+  if (!dontSave) {
+    // keep track of the words that were mistyped in this test
+    void addMissedWords(Object.keys(getMissedWords(eventLog)));
+    void saveFinishedTest(extractKeystrokes(eventLog));
+  }
+
+  let savingResultPromise: ReturnType<typeof saveResult> = Promise.resolve(null);
   const user = getAuthenticatedUser();
   if (user !== null) {
     // logged in
@@ -1172,11 +1106,7 @@ async function showResult(
     CustomText.getData(),
     getCustomTextIndicator()?.isLong ?? false,
   );
-  if (
-    Config.alwaysShowWordsHistory &&
-    canQuickRestartTest &&
-    !getGlarsesMode()
-  ) {
+  if (Config.alwaysShowWordsHistory && canQuickRestartTest && !getGlarsesMode()) {
     toggleResultWords(true);
   }
   void Funbox.clear();
@@ -1233,9 +1163,7 @@ async function saveResult(
       response.body.message =
         "Old key data format. Please refresh the page to download the new update. If the problem persists, please contact support.";
     }
-    if (
-      /"result\..+" is (not allowed|required)/gi.test(response.body.message)
-    ) {
+    if (/"result\..+" is (not allowed|required)/gi.test(response.body.message)) {
       response.body.message =
         "Looks like your result data is using an incorrect schema. Please refresh the page to download the new update. If the problem persists, please contact support.";
     }
@@ -1263,9 +1191,7 @@ async function saveResult(
     //TODO - this type cast was not needed before because we were using JSON cloning
     // but now with the stronger types it shows that we are forcing completed event
     // into a NormalizedLocalResult - might not cuase issues but worth investigating
-    const userResult = structuredClone(
-      result,
-    ) as unknown as NormalizedLocalResult<Mode>;
+    const userResult = structuredClone(result) as unknown as NormalizedLocalResult<Mode>;
     userResult._id = data.insertedId;
     if (data.isPb !== undefined && data.isPb) {
       userResult.isPb = true;
@@ -1338,11 +1264,7 @@ const debouncedZipfCheck = debounce(250, async () => {
 
 export function onRestartButtonClick(): void {
   if (isResultCalculating()) return;
-  if (
-    isTestActive() &&
-    Config.repeatQuotes === "typing" &&
-    Config.mode === "quote"
-  ) {
+  if (isTestActive() && Config.repeatQuotes === "typing" && Config.mode === "quote") {
     void restartTest({
       withSameWordset: true,
     });
@@ -1366,11 +1288,7 @@ export function repeatTest(): void {
  * TestPage calls this when the window regains focus or becomes visible.
  */
 export function restartIfNotStarted(): void {
-  if (
-    !isTestActive() &&
-    !isTestFinished() &&
-    (Config.mode === "time" || Config.mode === "words")
-  ) {
+  if (!isTestActive() && !isTestFinished() && (Config.mode === "time" || Config.mode === "words")) {
     void restartTest({
       noAnim: true,
     });
@@ -1383,10 +1301,7 @@ configEvent.subscribe(({ key, newValue, nosave }) => {
   if (TestUI.isMounted()) {
     if (key === "language") {
       //automatically enable lazy mode for arabic
-      if (
-        (newValue as string)?.startsWith("arabic") &&
-        getPrefersArabicLazyMode()
-      ) {
+      if ((newValue as string)?.startsWith("arabic") && getPrefersArabicLazyMode()) {
         setConfig("lazyMode", true, {
           nosave: true,
         });
@@ -1410,10 +1325,7 @@ configEvent.subscribe(({ key, newValue, nosave }) => {
         );
       }, 0);
     }
-    if (
-      (key === "language" || key === "funbox") &&
-      Config.funbox.includes("zipf")
-    ) {
+    if ((key === "language" || key === "funbox") && Config.funbox.includes("zipf")) {
       debouncedZipfCheck();
     }
   }
